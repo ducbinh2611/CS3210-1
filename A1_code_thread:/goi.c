@@ -140,10 +140,7 @@ int getNextState(const int *currWorld, const int *invaders, int nRows, int nCols
 int getRow(int nRows, int nCols, int index) {
     return index / nCols;
 }
-/*
-1 2 3 4 5
-6 7 8 9 10
-*/
+
 int getCol(int nRows, int nCols, int index) {
     return index % nCols;
 }
@@ -163,31 +160,25 @@ typedef struct sharedStruct {
 
 void* subroutine(void* sharedStruct) {
     shared* sharedVariables = (shared*) sharedStruct;
-    //printf("startIdx: %i\n", sharedVariables->startIdx);
-    //printf("endIdx: %i\n", sharedVariables->endIdx);
+
     //printf("addr of world in subroutine: %p\n", sharedVariables->world);
     //printf("inside subroutine: %i\n", sharedVariables->iteration);
-    printf("Current iteration: %i, tid: %i with startIdx: %i and endIdx: %i\n", sharedVariables->iteration, sharedVariables->tid, sharedVariables->startIdx,
-        sharedVariables->endIdx);
+    //printf("Current iteration: %i, tid: %i with startIdx: %i and endIdx: %i\n", sharedVariables->iteration, sharedVariables->tid, sharedVariables->startIdx,
+        // sharedVariables->endIdx);
     for (int i = sharedVariables->startIdx; i < sharedVariables->endIdx; i++) {
         bool diedDueToFighting = false;
         int row = getRow(sharedVariables->nRows, sharedVariables->nCols, i);
         int col = getCol(sharedVariables->nRows, sharedVariables->nCols, i);
-        printf("idx: %i and row: %i\n", i, row);
-        printf("idx: %i and col: %i\n", i, col);
-        // printf("index: %i\n", i);
-        printf("current state: %i at row: %i and col: %i \n", getValueAt(sharedVariables->world, sharedVariables->nRows, sharedVariables->nCols, row, col), row, col);
-
 
         int nextState = getNextState(sharedVariables->world, 
             sharedVariables->inv, sharedVariables->nRows, sharedVariables->nCols, row, col, &diedDueToFighting);
-        //printf("next state: %i\n", nextState);
+ 
         setValueAt(sharedVariables->wholeNewWorld, sharedVariables->nRows, sharedVariables->nCols, row, col, nextState);
 
         if (diedDueToFighting)
         {   
-            //printf("index: %i\n", i);
-            //printf("tid: %i increase deathToll at iteration %i at row: %i and col: %i\n", sharedVariables-> tid, sharedVariables->iteration, row, col);
+            // to check for where is the death toll
+            // printf("tid: %i increase deathToll at iteration %i at row: %i and col: %i\n", sharedVariables-> tid, sharedVariables->iteration, row, col);
             pthread_mutex_lock((sharedVariables->mutex));
             //need synchronisation here
             (*(sharedVariables->deathToll))++;
@@ -223,13 +214,13 @@ int goi(int nThreads, int nGenerations, const int *startWorld, int nRows, int nC
     // initialize the structs, startIdx and endIdx here
     for (int i = 0; i < nThreads - 1; i++) {
         shared* item = malloc(sizeof(shared));
-        *item->mutex = &mutex;
-        *item->nRows = nRows;
-        *item->nCols = nCols;
-        *item->deathToll = &deathToll;
-        *item->tid = i;
-        *item->startIdx = index;
-        *item->endIdx = fmin(index + threadSize - 1, totalGrids);
+        item->mutex = &mutex;
+        item->nRows = nRows;
+        item->nCols = nCols;
+        item->deathToll = &deathToll;
+        item->tid = i;
+        item->startIdx = index;
+        item->endIdx = fmin(index + threadSize, totalGrids);
         index = index + threadSize;
         sharedStructs[i] = item;
         printf("creating thread %d with startIndex: %i and endIdx: %i\n", i, item->startIdx, item->endIdx);
@@ -244,6 +235,8 @@ int goi(int nThreads, int nGenerations, const int *startWorld, int nRows, int nC
     lastItem->tid = nThreads - 1;
     lastItem->startIdx = index;
     lastItem->endIdx = totalGrids;
+    sharedStructs[nThreads - 1] = lastItem;
+    printf("creating thread %d with startIndex: %i and endIdx: %i\n", nThreads - 1, lastItem->startIdx, lastItem->endIdx);
 
     // init the world!
     // we make a copy because we do not own startWorld (and will perform free() on world)
@@ -344,14 +337,14 @@ int goi(int nThreads, int nGenerations, const int *startWorld, int nRows, int nC
                 exit(-1);
             }
         }
-        printf("Iteration: %i\n", i);
-        
+        //printf("Iteration: %i\n", i);
+
         // JOIN here
         for (int i = 0; i < nThreads; i++) {
             //printf("waiting for thread id: %li\n", threadsId[i]);
             pthread_join(threads[i], NULL);
         }
-        printf("After Iteration: %i\n", i);
+        //printf("After Iteration: %i\n", i);
 
         // get new states for each cell
         // for (int row = 0; row < nRows; row++)
@@ -374,6 +367,7 @@ int goi(int nThreads, int nGenerations, const int *startWorld, int nRows, int nC
         }
 
         // swap worlds
+        
         free(world);
         world = wholeNewWorld;
 
