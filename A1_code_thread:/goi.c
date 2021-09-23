@@ -144,6 +144,7 @@ int getRow(int nRows, int nCols, int index) {
 int getCol(int nRows, int nCols, int index) {
     return index % nCols;
 }
+
 typedef struct sharedStruct {
     pthread_mutex_t* mutex;
     int* world;
@@ -163,41 +164,31 @@ typedef struct sharedStruct {
 
 void* subroutine(void* sharedStruct) {
     shared* sharedVariables = (shared*) sharedStruct;
-
-    //printf("addr of world in subroutine: %p\n", sharedVariables->world);
-    //printf("inside subroutine: %i\n", sharedVariables->iteration);
     
     for (int k = 1; k <= sharedVariables->totalIteration; k++) {
-        // printf("iteration: %i\n", k);
         pthread_mutex_lock(&(sharedVariables->isReady[sharedVariables->tid]));
-        //printf("Current iteration: %i, tid: %i with startIdx: %i and endIdx: %i\n", sharedVariables->iteration, sharedVariables->tid, sharedVariables->startIdx,
-        //  sharedVariables->endIdx);
         for (int i = sharedVariables->startIdx; i < sharedVariables->endIdx; i++) {
             bool diedDueToFighting = false;
             int row = getRow(sharedVariables->nRows, sharedVariables->nCols, i);
             int col = getCol(sharedVariables->nRows, sharedVariables->nCols, i);
-            // printWorld(sharedVariables->world, sharedVariables->nRows, sharedVariables->nCols);
             int nextState = getNextState(sharedVariables->world, 
                 sharedVariables->inv, sharedVariables->nRows, sharedVariables->nCols, row, col, &diedDueToFighting);
-            // printf("tid: %i next state %i at row: %i and col: %i\n", sharedVariables-> tid, nextState, row, col);
 
             setValueAt(sharedVariables->wholeNewWorld, sharedVariables->nRows, sharedVariables->nCols, row, col, nextState);
 
             if (diedDueToFighting)
             {   
                 // to check for where is the death toll
-                pthread_mutex_lock((sharedVariables->mutex));
+                pthread_mutex_lock(sharedVariables->mutex);
                 //need synchronisation here
                 (*(sharedVariables->deathToll))++;
-                pthread_mutex_unlock((sharedVariables->mutex));
+                pthread_mutex_unlock(sharedVariables->mutex);
             }
         }
         pthread_barrier_wait(sharedVariables->barrier);
-
     }
 }
 
-// void structHelper(shared* sharedStruct, )
 /**
  * The main simulation logic.
  * 
@@ -217,7 +208,7 @@ int goi(int nThreads, int nGenerations, const int *startWorld, int nRows, int nC
     long threadsId[nThreads];
     pthread_mutex_t isReady[nThreads];
     pthread_barrier_init(&barrier, NULL, nThreads + 1);
-    shared** sharedStructs = malloc(sizeof(shared) * nThreads);
+    shared** sharedStructs = malloc(sizeof(shared) * nThreads); // need to clean
     if (sharedStructs == NULL) {
         printf("ERROR\n");
         exit(-1);
@@ -229,7 +220,6 @@ int goi(int nThreads, int nGenerations, const int *startWorld, int nRows, int nC
     // init the world!
     // we make a copy because we do not own startWorld (and will perform free() on world)
     int *world = malloc(sizeof(int) * nRows * nCols);
-    //printf("addr of world in goi: %p\n", world);
     if (world == NULL)
     {
         return -1;
@@ -254,7 +244,6 @@ int goi(int nThreads, int nGenerations, const int *startWorld, int nRows, int nC
         item->startIdx = index;
         item->endIdx = fmin(index + threadSize, totalGrids);
         item->isReady = isReady;
-        //item->isReady[i] = PTHREAD_MUTEX_INITIALIZER;
         pthread_mutex_init(&(isReady[i]), NULL);
         index = index + threadSize;
         sharedStructs[i] = item;
@@ -269,7 +258,6 @@ int goi(int nThreads, int nGenerations, const int *startWorld, int nRows, int nC
     lastItem->world = world;
     lastItem->mutex = &mutex;
     lastItem->isReady = isReady;
-    // lastItem->isReady[nThreads - 1] = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_init(&(isReady[nThreads - 1]), NULL);
     lastItem->nRows = nRows;
     lastItem->nCols = nCols;
@@ -329,37 +317,16 @@ int goi(int nThreads, int nGenerations, const int *startWorld, int nRows, int nC
             free(world);
             return -1;
         }
-        /* use threads to parallelise this part:
-        Idea: 
-        1. goi spawns thread here
-        2. assign each thread the range it works with
-        3. for each thread:
-            3.1: iterate over the range (idx)
-                3.1.1: get the row and col 
-                3.1.2: call getNextState()
-        4. wait and join after each stage
-
-        */
-        //printf("at the begiining of iteration: %i\n", i);
 
         int rc;
-        //printf("here inside for generation: %i\n", i);
         for (int t = 0; t < nThreads; t++) {
-            //int startIdx = ((nRows * nCols) / nThreads) * t;
-            int endIdx = (int)ceil(((double)nRows * nCols) / nThreads) * (t + 1) - 1;
-
             // get the struct
             shared* item = sharedStructs[t];
             item->world = world;
             item->inv = inv;
             item->wholeNewWorld = wholeNewWorld;
             item->iteration = i;
-            //printf("here inside for generation: %i\n", i);
             pthread_mutex_unlock(&(item->isReady[t]));
-            // printf("here inside for generation: %i\n", i);
-            // item->deathToll = &deathToll;
-            //*item = { world, inv, nRows, nCols, startIdx, endIdx, wholeNewWorld, &deathToll };
-            //sharedStructs[t] = item;
             if (!spawnThreads) {
                 rc = pthread_create(&threads[t], NULL, &subroutine,
                     (void*)item);
@@ -373,35 +340,7 @@ int goi(int nThreads, int nGenerations, const int *startWorld, int nRows, int nC
             
         
         spawnThreads = true;
-        //printf("here\n");
         pthread_barrier_wait(&barrier);
-        // printf("finally end\n");
-
-        // printf("here\n");
-        //printf("Iteration: %i\n", i);
-
-        // JOIN here
-        // for (int i = 0; i < nThreads; i++) {
-        //     //printf("waiting for thread id: %li\n", threadsId[i]);
-        //     pthread_join(threads[i], NULL);
-        // }
-
-        //printf("After Iteration: %i\n", i);
-
-        // get new states for each cell
-        // for (int row = 0; row < nRows; row++)
-        // {
-        //     for (int col = 0; col < nCols; col++)
-        //     {
-        //         bool diedDueToFighting;
-        //         int nextState = getNextState(world, inv, nRows, nCols, row, col, &diedDueToFighting);
-        //         setValueAt(wholeNewWorld, nRows, nCols, row, col, nextState);
-        //         if (diedDueToFighting)
-        //         {
-        //             deathToll++;
-        //         }
-        //     }
-        // }
 
         if (inv != NULL)
         {
@@ -412,8 +351,6 @@ int goi(int nThreads, int nGenerations, const int *startWorld, int nRows, int nC
         
         free(world);
         world = wholeNewWorld;
-        // printWorld(world, nRows, nCols);
-        // printWorld(sharedStructs[0]->world, nRows, nCols);
 
 #if PRINT_GENERATIONS
         printf("\n=== WORLD %d ===\n", i);
@@ -424,10 +361,22 @@ int goi(int nThreads, int nGenerations, const int *startWorld, int nRows, int nC
         exportWorld(world, nRows, nCols);
 #endif
     }
+
     for (int i = 0; i < nThreads; i++) {
-        //printf("waiting for thread id: %li\n", threadsId[i]);
         pthread_join(threads[i], NULL);
     }
+
     free(world);
+
+    /* clean up the structs*/
+    for (int i = 0; i < nThreads; i++) {
+        shared* item = sharedStructs[i];
+        // free the mutex
+        pthread_mutex_destroy(item->mutex);
+        free(item);
+    }
+    
+    free(sharedStructs);
+
     return deathToll;
 }
